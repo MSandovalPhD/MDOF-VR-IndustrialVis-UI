@@ -4,21 +4,18 @@ from ui.main_window import MainWindow
 from lisu.lisu_handler import LisuManager
 
 def main():
-    # Initialize the LISU framework
-    lisu = LisuManager()
-    
-    # Create the Qt application
+    # Create application
     app = QApplication(sys.argv)
     
-    # Set application style
-    app.setStyle('Fusion')
+    # Create LISU manager
+    lisu_manager = LisuManager()
     
-    # Create and show the main window
-    window = MainWindow(lisu)
+    # Create and show main window
+    window = MainWindow(lisu_manager)
     window.show()
     
-    # Start the event loop
+    # Start application
     sys.exit(app.exec())
 
-if __name__ == '__main__':
+if __name__ == "__main__":
     main() 

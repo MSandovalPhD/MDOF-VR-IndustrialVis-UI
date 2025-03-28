@@ -1,0 +1,38 @@
+{
+    "input_devices": {
+        "Bluetooth_mouse": {
+            "vid": "046d",
+            "pid": "b03a",
+            "type": "mouse",
+            "axes": [
+                "x",
+                "y"
+            ],
+            "buttons": [
+                "left_click",
+                "right_click"
+            ]
+        },
+        "SpaceMouse": {
+            "vid": "256f",
+            "pid": "c635",
+            "type": "3dconnexion",
+            "axes": [
+                "x",
+                "y",
+                "z",
+                "rx",
+                "ry",
+                "rz"
+            ],
+            "buttons": [
+                "button_1",
+                "button_2"
+            ]
+        }
+    },
+    "udp": {
+        "ip": "127.0.0.1",
+        "port": 9000
+    }
+}
