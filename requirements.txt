@@ -1,0 +1,10 @@
+PyQt6>=6.6.1
+pywinusb==0.4.2
+pywin32==306
+pygame==2.5.2
+mouse>=0.7.1
+rdflib>=7.0.0
+qprompt>=0.3.0
+numpy>=1.26.4
+darkdetect>=0.8.0  # For theme detection
+qtawesome>=1.3.0   # For icons 
