@@ -1,6 +1,6 @@
 PyQt6>=6.6.1
 pywinusb==0.4.2
-pywin32==306
+pywin32>=307
 pygame==2.5.2
 mouse>=0.7.1
 rdflib>=7.0.0

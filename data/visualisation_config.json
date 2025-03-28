@@ -1,0 +1,30 @@
+{
+    "input_devices": {
+        "Bluetooth_mouse": {
+            "vid": "046d",
+            "pid": "b03a",
+            "type": "mouse"
+        },
+        "SpaceMouse": {
+            "vid": "256f",
+            "pid": "c635",
+            "type": "3dconnexion"
+        }
+    },
+    "actuation": {
+        "commands": {
+            "mouse": "addrotation %.3f 0.0 0.0 %s",
+            "3dconnexion": "addrotation %.3f %.3f %.3f %s"
+        }
+    },
+    "visualisation": {
+        "render_options": {
+            "visualisations": {
+                "Drishti-v2.6.4": {
+                    "udp_ip": "127.0.0.1",
+                    "udp_port": 7755
+                }
+            }
+        }
+    }
+}

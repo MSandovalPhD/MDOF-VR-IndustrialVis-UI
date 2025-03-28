@@ -1,0 +1,9 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<svg width="500" height="500" viewBox="0 0 500 500" xmlns="http://www.w3.org/2000/svg">
+    <circle cx="250" cy="250" r="240" fill="white"/>
+    <path d="M150,150 C150,150 350,150 350,150 C380,150 400,170 400,200 L400,300 C400,330 380,350 350,350 L150,350 C120,350 100,330 100,300 L100,200 C100,170 120,150 150,150 Z" fill="none" stroke="#FF6B35" stroke-width="8"/>
+    <path d="M150,150 C150,150 350,150 350,150 C380,150 400,170 400,200 L400,300 C400,330 380,350 350,350 L150,350 C120,350 100,330 100,300 L100,200 C100,170 120,150 150,150 Z" fill="none" stroke="#4ECDC4" stroke-width="4"/>
+    <text x="250" y="270" font-family="Arial" font-size="80" text-anchor="middle" fill="#1A535C">LISU</text>
+    <text x="250" y="320" font-family="Arial" font-size="20" text-anchor="middle" fill="#1A535C" transform="rotate(-20 100,320)">Layered Interaction System</text>
+    <text x="250" y="320" font-family="Arial" font-size="20" text-anchor="middle" fill="#1A535C" transform="rotate(20 400,320)">for User-Modes</text>
+</svg> 
