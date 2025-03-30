@@ -1,5 +1,26 @@
 {
     "input_devices": {
+        "Gamepad_0": {
+            "vid": "0",
+            "pid": "0",
+            "type": "gamepad",
+            "axes": [
+                "axis_0",
+                "axis_1",
+                "axis_2",
+                "axis_3"
+            ],
+            "buttons": [
+                "button_0",
+                "button_1",
+                "button_2",
+                "button_3",
+                "button_4",
+                "button_5",
+                "button_6",
+                "button_7"
+            ]
+        },
         "Bluetooth_mouse": {
             "vid": "046d",
             "pid": "b03a",
@@ -31,8 +52,38 @@
             ]
         }
     },
+    "commands": {
+        "available_commands": [
+            "addrotation",
+            "move",
+            "rotate",
+            "translate"
+        ],
+        "command_formats": {
+            "addrotation": "addrotation %.2f %.2f %.2f %.2f",
+            "move": "move %.2f %.2f %.2f",
+            "rotate": "rotate %.2f %.2f %.2f %.2f",
+            "translate": "translate %.2f %.2f %.2f"
+        },
+        "default_values": {
+            "rotation_angle": 40.0,
+            "movement_step": 20.0
+        }
+    },
+    "visualisations": {
+        "available_targets": [
+            "Drishti-v2.6.4"
+        ],
+        "target_configs": {
+            "Drishti-v2.6.4": {
+                "udp_ip": "127.0.0.1",
+                "udp_port": 7755,
+                "description": "Drishti Visualisation Software"
+            }
+        }
+    },
     "udp": {
         "ip": "127.0.0.1",
-        "port": 9000
+        "port": 7755
     }
 }

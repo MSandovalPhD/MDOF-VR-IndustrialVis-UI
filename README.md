@@ -103,4 +103,19 @@ MDOF-VR-IndustrialVis-UI/
 
 ## License
 
-This project is licensed under the MIT License - see the LICENSE file for details.
+This project is licensed under the MIT License. See the LICENSE file for more details.
+
+## Contributing
+
+Contributions are welcome! Please fork the repository, make changes, and submit pull requests. For major changes, please open an issue first to discuss.
+
+## Contact
+
+Mario Sandoval - mariosandovalac@gmail.com
+
+All related research papers can be found on [Mario Sandoval Olivé's Academia.edu page](https://manchester.academia.edu/MarioSandovalOliv%C3%A9).
+
+### Note
+
+LISU is a research project of the University of Manchester. Any unauthorised use or claim of this work will be considered a violation of intellectual property rights.
+
