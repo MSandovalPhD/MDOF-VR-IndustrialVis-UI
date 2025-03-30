@@ -29,6 +29,14 @@ class MainWindow(QMainWindow):
         self.x_offset = 0.0
         self.y_offset = 0.0
         
+        # Axis mapping flags
+        self.x_mapping = False
+        self.y_mapping = False
+        self.z_mapping = False
+        self.yaw_mapping = False
+        self.pitch_mapping = False
+        self.roll_mapping = False
+        
         self.setup_ui()
         
     def setup_ui(self):
@@ -254,24 +262,59 @@ class MainWindow(QMainWindow):
         control_group = QGroupBox("Device Control and Monitoring")
         control_layout = QGridLayout()
         
-        # Add control buttons with enhanced functionality
-        self.buttons = {}
-        button_configs = [
-            ("X-Axis Control", "fa5s.arrows-alt-h", self.control_x_axis),
-            ("Y-Axis Control", "fa5s.arrows-alt-v", self.control_y_axis),
-            ("Z-Axis Control", "fa5s.arrows-alt", self.control_z_axis),
-            ("Move Forward", "fa5s.arrow-up", self.move_forward),
-            ("Reset Position", "fa5s.undo", self.reset_position),
-            ("Calibrate", "fa5s.crosshairs", self.calibrate_device)
+        # First row: Translation Controls (X, Y, Z)
+        translation_buttons = [
+            ("X-Axis Control", "fa5s.arrows-alt-h", self.control_x_axis, "Map X movement"),
+            ("Y-Axis Control", "fa5s.arrows-alt-v", self.control_y_axis, "Map Y movement"),
+            ("Z-Axis Control", "fa5s.arrows-alt", self.control_z_axis, "Map Z movement")
         ]
         
-        for i, (text, icon, callback) in enumerate(button_configs):
+        # Second row: Rotation Controls (Yaw, Pitch, Roll)
+        rotation_buttons = [
+            ("Yaw Control", "fa5s.sync", self.control_yaw, "Map Yaw rotation"),
+            ("Pitch Control", "fa5s.sync-alt", self.control_pitch, "Map Pitch rotation"),
+            ("Roll Control", "fa5s.redo", self.control_roll, "Map Roll rotation")
+        ]
+        
+        # Third row: Utility Controls
+        utility_buttons = [
+            ("Move Forward", "fa5s.arrow-up", self.move_forward, "Move forward"),
+            ("Reset Position", "fa5s.undo", self.reset_position, "Reset position"),
+            ("Calibrate", "fa5s.crosshairs", self.calibrate_device, "Calibrate device")
+        ]
+        
+        # Add all buttons to the layout
+        self.buttons = {}
+        
+        # Add translation controls (row 0)
+        for col, (text, icon, callback, tooltip) in enumerate(translation_buttons):
             btn = QPushButton(text)
             btn.setIcon(qta.icon(icon))
             btn.setEnabled(False)
             btn.clicked.connect(callback)
+            btn.setToolTip(tooltip)
             self.buttons[text] = btn
-            control_layout.addWidget(btn, i // 2, i % 2)
+            control_layout.addWidget(btn, 0, col)
+        
+        # Add rotation controls (row 1)
+        for col, (text, icon, callback, tooltip) in enumerate(rotation_buttons):
+            btn = QPushButton(text)
+            btn.setIcon(qta.icon(icon))
+            btn.setEnabled(False)
+            btn.clicked.connect(callback)
+            btn.setToolTip(tooltip)
+            self.buttons[text] = btn
+            control_layout.addWidget(btn, 1, col)
+        
+        # Add utility controls (row 2)
+        for col, (text, icon, callback, tooltip) in enumerate(utility_buttons):
+            btn = QPushButton(text)
+            btn.setIcon(qta.icon(icon))
+            btn.setEnabled(False)
+            btn.clicked.connect(callback)
+            btn.setToolTip(tooltip)
+            self.buttons[text] = btn
+            control_layout.addWidget(btn, 2, col)
             
         control_group.setLayout(control_layout)
         main_layout.addWidget(control_group)
@@ -362,8 +405,13 @@ class MainWindow(QMainWindow):
             self.status_bar.showMessage(f"Error updating status: {str(e)}")
             
     def control_x_axis(self):
-        """Control X-axis rotation"""
+        """Control X-axis movement"""
         try:
+            if self.gamepad:
+                self.x_mapping = True
+                self.y_mapping = False
+                self.z_mapping = False
+                self.status_bar.showMessage("Move controller to control X-axis movement")
             angle = float(self.rotation_angle.text())
             cmd_type = self.cmd_combo.currentText()
             self.send_command(cmd_type, 1.0, 0.0, 0.0, angle)
@@ -373,8 +421,13 @@ class MainWindow(QMainWindow):
             self.status_bar.showMessage(f"Error sending command: {str(e)}")
             
     def control_y_axis(self):
-        """Control Y-axis rotation"""
+        """Control Y-axis movement"""
         try:
+            if self.gamepad:
+                self.x_mapping = False
+                self.y_mapping = True
+                self.z_mapping = False
+                self.status_bar.showMessage("Move controller to control Y-axis movement")
             angle = float(self.rotation_angle.text())
             cmd_type = self.cmd_combo.currentText()
             self.send_command(cmd_type, 0.0, 1.0, 0.0, angle)
@@ -384,8 +437,13 @@ class MainWindow(QMainWindow):
             self.status_bar.showMessage(f"Error sending command: {str(e)}")
             
     def control_z_axis(self):
-        """Control Z-axis rotation"""
+        """Control Z-axis movement"""
         try:
+            if self.gamepad:
+                self.x_mapping = False
+                self.y_mapping = False
+                self.z_mapping = True
+                self.status_bar.showMessage("Move controller to control Z-axis movement")
             angle = float(self.rotation_angle.text())
             cmd_type = self.cmd_combo.currentText()
             self.send_command(cmd_type, 0.0, 0.0, 1.0, angle)
@@ -751,8 +809,22 @@ class MainWindow(QMainWindow):
                         scale = float(self.rotation_angle.text())
                         cmd_type = self.cmd_combo.currentText()
                         
-                        # Send command through centralized function
-                        self.send_command(cmd_type, x_axis, -y_axis, 0.0, scale)
+                        # Map movement based on active axis
+                        if self.x_mapping:
+                            self.send_command(cmd_type, x_axis, 0.0, 0.0, scale)
+                        elif self.y_mapping:
+                            self.send_command(cmd_type, 0.0, -y_axis, 0.0, scale)
+                        elif self.z_mapping:
+                            self.send_command(cmd_type, 0.0, 0.0, -y_axis, scale)
+                        elif self.yaw_mapping:
+                            self.send_command(cmd_type, 0.0, x_axis, 0.0, scale)
+                        elif self.pitch_mapping:
+                            self.send_command(cmd_type, -y_axis, 0.0, 0.0, scale)
+                        elif self.roll_mapping:
+                            self.send_command(cmd_type, 0.0, 0.0, x_axis, scale)
+                        else:
+                            # Default behavior (no mapping active)
+                            self.send_command(cmd_type, x_axis, -y_axis, 0.0, scale)
                         
                         # Update last send time
                         self.last_send_time = current_time
@@ -821,4 +893,55 @@ class MainWindow(QMainWindow):
             if current > 1:  # Prevent negative or zero steps
                 self.movement_step.setText(str(current - 1))
         except ValueError:
-            self.movement_step.setText("1") 
+            self.movement_step.setText("1")
+
+    def control_yaw(self):
+        """Control Yaw rotation"""
+        try:
+            angle = float(self.rotation_angle.text())
+            cmd_type = self.cmd_combo.currentText()
+            # Map current gamepad position to yaw axis
+            if self.gamepad:
+                self.yaw_mapping = True
+                self.pitch_mapping = False
+                self.roll_mapping = False
+                self.status_bar.showMessage("Move controller to control Yaw rotation")
+            self.send_command(cmd_type, 0.0, 1.0, 0.0, angle)  # Y-axis rotation for yaw
+        except ValueError:
+            self.status_bar.showMessage("Invalid rotation angle value")
+        except Exception as e:
+            self.status_bar.showMessage(f"Error sending command: {str(e)}")
+
+    def control_pitch(self):
+        """Control Pitch rotation"""
+        try:
+            angle = float(self.rotation_angle.text())
+            cmd_type = self.cmd_combo.currentText()
+            # Map current gamepad position to pitch axis
+            if self.gamepad:
+                self.yaw_mapping = False
+                self.pitch_mapping = True
+                self.roll_mapping = False
+                self.status_bar.showMessage("Move controller to control Pitch rotation")
+            self.send_command(cmd_type, 1.0, 0.0, 0.0, angle)  # X-axis rotation for pitch
+        except ValueError:
+            self.status_bar.showMessage("Invalid rotation angle value")
+        except Exception as e:
+            self.status_bar.showMessage(f"Error sending command: {str(e)}")
+
+    def control_roll(self):
+        """Control Roll rotation"""
+        try:
+            angle = float(self.rotation_angle.text())
+            cmd_type = self.cmd_combo.currentText()
+            # Map current gamepad position to roll axis
+            if self.gamepad:
+                self.yaw_mapping = False
+                self.pitch_mapping = False
+                self.roll_mapping = True
+                self.status_bar.showMessage("Move controller to control Roll rotation")
+            self.send_command(cmd_type, 0.0, 0.0, 1.0, angle)  # Z-axis rotation for roll
+        except ValueError:
+            self.status_bar.showMessage("Invalid rotation angle value")
+        except Exception as e:
+            self.status_bar.showMessage(f"Error sending command: {str(e)}") 
