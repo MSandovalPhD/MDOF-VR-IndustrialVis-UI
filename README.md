@@ -115,7 +115,3 @@ Mario Sandoval - mariosandovalac@gmail.com
 
 All related research papers can be found on [Mario Sandoval Olivé's Academia.edu page](https://manchester.academia.edu/MarioSandovalOliv%C3%A9).
 
-### Note
-
-LISU is a research project of the University of Manchester. Any unauthorised use or claim of this work will be considered a violation of intellectual property rights.
-
