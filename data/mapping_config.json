@@ -1,0 +1,35 @@
+{
+    "device": "Gamepad_0",
+    "axis_mapping": {
+        "axis_0": {
+            "function": "X",
+            "invert": false,
+            "sensitivity": 0.5
+        },
+        "axis_1": {
+            "function": "Y",
+            "invert": false,
+            "sensitivity": 0.5
+        },
+        "axis_2": {
+            "function": "None",
+            "invert": false,
+            "sensitivity": 0.5
+        },
+        "axis_3": {
+            "function": "Z",
+            "invert": false,
+            "sensitivity": 0.5
+        }
+    },
+    "button_mapping": {
+        "button_0": "None",
+        "button_1": "None",
+        "button_2": "None",
+        "button_3": "None",
+        "button_4": "None",
+        "button_5": "None",
+        "button_6": "None",
+        "button_7": "None"
+    }
+}

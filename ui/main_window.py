@@ -1,8 +1,8 @@
 from PyQt6.QtWidgets import (QMainWindow, QWidget, QVBoxLayout, QHBoxLayout,
                              QPushButton, QLabel, QComboBox, QStatusBar,
                              QGroupBox, QGridLayout, QSpacerItem, QSizePolicy,
-                             QLineEdit, QTextEdit)
-from PyQt6.QtCore import Qt, QTimer
+                             QLineEdit, QTextEdit, QTabWidget, QFrame)
+from PyQt6.QtCore import Qt, QTimer, QSize
 from PyQt6.QtGui import QFont, QPixmap, QPainter, QPen, QColor, QPainterPath
 import qtawesome as qta
 import darkdetect
@@ -11,55 +11,61 @@ import socket
 import json
 from datetime import datetime
 import pygame
+import os
+from .mapping_window import MappingWindow
 
 class MainWindow(QMainWindow):
     def __init__(self, lisu_manager):
         super().__init__()
-        self.lisu = lisu_manager
+        self.lisu_manager = lisu_manager
+        self.config = self.load_config()
+        self.selected_device = None
+        self.udp_socket = None
+        self.last_command_time = 0
+        self.command_interval = 0.05  # 50ms between commands
         
-        # Initialize pygame for gamepad support
-        pygame.init()
-        pygame.joystick.init()
+        # Initialize mapping control attributes
+        self.axis_mapping_controls = []
+        self.button_mapping_controls = []
+        self.axis_mapping_layout = QGridLayout()
+        self.button_mapping_layout = QGridLayout()
         
-        # Gamepad state and calibration
-        self.gamepad = None
-        self.is_reading_input = False
-        self.input_timer = QTimer()
-        self.input_timer.timeout.connect(self.read_gamepad_input)
-        self.x_offset = 0.0
-        self.y_offset = 0.0
+        # Initialize device capabilities
+        self.device_capabilities = {
+            "Gamepad_0": {"axes": 4, "buttons": 8},
+            "Bluetooth_mouse": {"axes": 2, "buttons": 3},
+            "SpaceMouse": {"axes": 6, "buttons": 2}
+        }
         
-        # Axis mapping flags
-        self.x_mapping = False
-        self.y_mapping = False
-        self.z_mapping = False
-        self.yaw_mapping = False
-        self.pitch_mapping = False
-        self.roll_mapping = False
+        # Initialize status bar
+        self.status_bar = QStatusBar()
+        self.setStatusBar(self.status_bar)
+        self.status_bar.setFont(QFont("Roboto", 10)) 
+        self.status_bar.showMessage("Ready")
+        
+        # Initialize mapping buttons
+        self.save_mapping_button = QPushButton("Save Mapping")
+        self.save_mapping_button.setIcon(qta.icon('fa5s.save', color='white'))
+        self.save_mapping_button.setFont(QFont("Roboto", 10))
+        
+        self.load_mapping_button = QPushButton("Load Mapping")
+        self.load_mapping_button.setIcon(qta.icon('fa5s.folder-open', color='white'))
+        self.load_mapping_button.setFont(QFont("Roboto", 10))
         
         self.setup_ui()
+        self.setup_gamepad()
         
     def setup_ui(self):
-        # Load configuration first
-        try:
-            with open("data/config.json", "r") as f:
-                self.config = json.load(f)
-        except Exception as e:
-            self.config = {"udp": {"ip": "127.0.0.1", "port": 7755}}
-            print(f"Error loading config: {str(e)}")
-
-        # Initialize UDP socket
-        self.udp_socket = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
-        self.udp_socket.settimeout(0.1)  # 100ms timeout for non-blocking operations
-
-        # Set window properties
-        self.setWindowTitle("LISU Framework Control Panel")
-        self.setMinimumSize(1000, 700)
+        """Set up the main window UI"""
+        self.setWindowTitle("LISU Control Interface")
+        self.setMinimumSize(1200, 800)
         
         # Create central widget and main layout
         central_widget = QWidget()
         self.setCentralWidget(central_widget)
         main_layout = QVBoxLayout(central_widget)
+        main_layout.setSpacing(20)
+        main_layout.setContentsMargins(20, 20, 20, 20)
         
         # Create header container
         header_container = QWidget()
@@ -121,8 +127,7 @@ class MainWindow(QMainWindow):
             "Control VR visualisations, manipulate 3D models and navigate virtual environments"
         )
         welcome_text.setWordWrap(False)  # Prevent text wrapping
-        welcome_font = QFont()
-        welcome_font.setPointSize(11)
+        welcome_font = QFont("Roboto", 11)
         welcome_font.setBold(True)
         welcome_text.setFont(welcome_font)
         welcome_text.setAlignment(Qt.AlignmentFlag.AlignVCenter | Qt.AlignmentFlag.AlignLeft)
@@ -138,213 +143,506 @@ class MainWindow(QMainWindow):
         main_layout.addWidget(header_container)
         main_layout.addSpacing(10)
         
+        # Create tab widget
+        tab_widget = QTabWidget()
+        tab_widget.setFont(QFont("Roboto", 12))
         
-        # Add small spacing after header
-        main_layout.addSpacing(10)
+        # Create tabs
+        device_tab = QWidget()
+        control_tab = QWidget()
+        mapping_tab = QWidget()
+        settings_tab = QWidget()
         
+        # Set up tab layouts
+        device_layout = QVBoxLayout(device_tab)
+        control_layout = QVBoxLayout(control_tab)
+        mapping_layout = QVBoxLayout(mapping_tab)
+        settings_layout = QVBoxLayout(settings_tab)
+        
+        # Add tabs to widget with icons and tooltips
+        device_tab_index = tab_widget.addTab(device_tab, qta.icon('fa5s.gamepad', color='white'), "Device")
+        tab_widget.setTabToolTip(device_tab_index, 
+            "Configure your input device, select visualization target, and set up UDP connection")
+        
+        control_tab_index = tab_widget.addTab(control_tab, qta.icon('fa5s.sliders-h', color='white'), "Control")
+        tab_widget.setTabToolTip(control_tab_index, 
+            "Control device movement and rotation with buttons and input device")
+        
+        mapping_tab_index = tab_widget.addTab(mapping_tab, qta.icon('fa5s.cog', color='white'), "Mapping")
+        tab_widget.setTabToolTip(mapping_tab_index, 
+            "Customize how your input device's axes and buttons map to different functions")
+        
+        settings_tab_index = tab_widget.addTab(settings_tab, qta.icon('fa5s.cogs', color='white'), "Settings")
+        tab_widget.setTabToolTip(settings_tab_index, 
+            "Configure application settings, theme, and other preferences")
+        
+        # Add tab widget to main layout
+        main_layout.addWidget(tab_widget)
+        
+        # Set up Device tab content (Device Selection and UDP Configuration)
+        self.setup_device_tab(device_layout)
+        
+        # Set up Control tab content (Device Control)
+        self.setup_control_tab(control_layout)
+        
+        # Set up Mapping tab content
+        self.setup_mapping_tab(mapping_layout)
+        
+        # Set up Settings tab content
+        self.setup_settings_tab(settings_layout)
+        
+        # Apply styling
+        self.apply_styling()
+        
+    def setup_device_tab(self, layout):
+        """Set up the Device tab content"""
         # Device Selection and Configuration
         device_group = QGroupBox("Device Selection and Configuration")
+        device_group.setFont(QFont("Roboto", 14, QFont.Weight.Bold))
         device_layout = QGridLayout()
+        device_layout.setContentsMargins(20, 20, 20, 20)
+        device_layout.setSpacing(15)
         
         # First row: Device Selection and Visualisation Target
         device_layout.addWidget(QLabel("Select Device:"), 0, 0)
         self.device_type_combo = QComboBox()
+        self.device_type_combo.setFont(QFont("Roboto", 10))
         self.device_type_combo.addItems(["Gamepad_0", "Bluetooth_mouse", "SpaceMouse"])
         device_layout.addWidget(self.device_type_combo, 0, 1)
         
-        device_layout.addWidget(QLabel("Visualisation Target:"), 0, 2)
+        # Add Configure Mapping button
+        self.configure_mapping_btn = QPushButton("Configure Mapping")
+        self.configure_mapping_btn.setIcon(qta.icon('fa5s.cog', color='white'))
+        self.configure_mapping_btn.setFont(QFont("Roboto", 10))
+        self.configure_mapping_btn.clicked.connect(self.open_mapping_window)
+        device_layout.addWidget(self.configure_mapping_btn, 0, 2)
+        
+        device_layout.addWidget(QLabel("Visualisation Target:"), 0, 3)
         self.vis_combo = QComboBox()
+        self.vis_combo.setFont(QFont("Roboto", 12))
         self.vis_combo.addItems(self.config.get("visualisations", {}).get("available_targets", []))
         self.vis_combo.currentTextChanged.connect(self.on_visualisation_changed)
-        device_layout.addWidget(self.vis_combo, 0, 3)
+        device_layout.addWidget(self.vis_combo, 0, 4)
         
         # Second row: Command Type
         device_layout.addWidget(QLabel("Command Type:"), 1, 0)
         self.cmd_combo = QComboBox()
+        self.cmd_combo.setFont(QFont("Roboto", 10))
         self.cmd_combo.addItems(self.config.get("commands", {}).get("available_commands", []))
         self.cmd_combo.currentTextChanged.connect(self.on_command_changed)
-        device_layout.addWidget(self.cmd_combo, 1, 1, 1, 3)  # Span 3 columns
+        device_layout.addWidget(self.cmd_combo, 1, 1, 1, 4)
         
         # Third row: Movement Parameters
-        device_layout.addWidget(QLabel("Movement Parameters:"), 2, 0, 1, 4)  # Span all columns
-        
-        # Fourth row: Rotation Angle and Movement Step
+        device_layout.addWidget(QLabel("Rotation Angle:"), 2, 0)
         rotation_layout = QHBoxLayout()
-        rotation_layout.addWidget(QLabel("Rotation Angle (°):"))
+        rotation_layout.setSpacing(5)  # Reduce spacing between elements
+        self.rotation_input = QLineEdit("40.0")
+        self.rotation_input.setFont(QFont("Roboto", 12))
+        self.rotation_input.setFixedWidth(80)  # Reduce width
+        rotation_layout.addWidget(self.rotation_input)
         
-        rotation_minus_btn = QPushButton("-")
-        rotation_minus_btn.setIcon(qta.icon('fa5s.minus'))
-        rotation_minus_btn.clicked.connect(self.decrease_rotation_angle)
-        rotation_minus_btn.setFixedWidth(20)  # Small, compact button
-        rotation_minus_btn.setFixedHeight(20)
+        # Add +/- buttons for rotation
+        self.rotation_plus_btn = QPushButton("+")
+        self.rotation_plus_btn.setIcon(qta.icon('fa5s.plus', color='white'))
+        self.rotation_plus_btn.setFixedWidth(30)  # Reduce width
+        self.rotation_plus_btn.clicked.connect(lambda: self.adjust_rotation(1))
+        rotation_layout.addWidget(self.rotation_plus_btn)
         
-        self.rotation_angle = QLineEdit(str(self.config["commands"]["default_values"]["rotation_angle"]))
-        self.rotation_angle.setFixedWidth(60)
+        self.rotation_minus_btn = QPushButton("-")
+        self.rotation_minus_btn.setIcon(qta.icon('fa5s.minus', color='white'))
+        self.rotation_minus_btn.setFixedWidth(30)  # Reduce width
+        self.rotation_minus_btn.clicked.connect(lambda: self.adjust_rotation(-1))
+        rotation_layout.addWidget(self.rotation_minus_btn)
         
-        rotation_plus_btn = QPushButton("+")
-        rotation_plus_btn.setIcon(qta.icon('fa5s.plus'))
-        rotation_plus_btn.clicked.connect(self.increase_rotation_angle)
-        rotation_plus_btn.setFixedWidth(20)  # Small, compact button
-        rotation_plus_btn.setFixedHeight(20)
+        device_layout.addLayout(rotation_layout, 2, 1, 1, 2)
         
-        rotation_layout.addWidget(rotation_minus_btn)
-        rotation_layout.addWidget(self.rotation_angle)
-        rotation_layout.addWidget(rotation_plus_btn)
-        device_layout.addLayout(rotation_layout, 3, 0, 1, 2)
+        device_layout.addWidget(QLabel("Movement Step:"), 2, 3)
+        step_layout = QHBoxLayout()
+        step_layout.setSpacing(5)  # Reduce spacing between elements
+        self.step_input = QLineEdit("1.0")
+        self.step_input.setFont(QFont("Roboto", 10))
+        self.step_input.setFixedWidth(80)  # Reduce width
+        step_layout.addWidget(self.step_input)
         
-        movement_layout = QHBoxLayout()
-        movement_layout.addWidget(QLabel("Movement Step:"))
+        # Add +/- buttons for step
+        self.step_plus_btn = QPushButton("+")
+        self.step_plus_btn.setIcon(qta.icon('fa5s.plus', color='white'))
+        self.step_plus_btn.setFixedWidth(30)  # Reduce width
+        self.step_plus_btn.clicked.connect(lambda: self.adjust_step(1))
+        step_layout.addWidget(self.step_plus_btn)
         
-        movement_minus_btn = QPushButton("-")
-        movement_minus_btn.setIcon(qta.icon('fa5s.minus'))
-        movement_minus_btn.clicked.connect(self.decrease_movement_step)
-        movement_minus_btn.setFixedWidth(20)  # Small, compact button
-        movement_minus_btn.setFixedHeight(20)
+        self.step_minus_btn = QPushButton("-")
+        self.step_minus_btn.setIcon(qta.icon('fa5s.minus', color='white'))
+        self.step_minus_btn.setFixedWidth(30)  # Reduce width
+        self.step_minus_btn.clicked.connect(lambda: self.adjust_step(-1))
+        step_layout.addWidget(self.step_minus_btn)
         
-        self.movement_step = QLineEdit(str(self.config["commands"]["default_values"]["movement_step"]))
-        self.movement_step.setFixedWidth(60)
+        device_layout.addLayout(step_layout, 2, 4)
         
-        movement_plus_btn = QPushButton("+")
-        movement_plus_btn.setIcon(qta.icon('fa5s.plus'))
-        movement_plus_btn.clicked.connect(self.increase_movement_step)
-        movement_plus_btn.setFixedWidth(20)  # Small, compact button
-        movement_plus_btn.setFixedHeight(20)
-        
-        movement_layout.addWidget(movement_minus_btn)
-        movement_layout.addWidget(self.movement_step)
-        movement_layout.addWidget(movement_plus_btn)
-        device_layout.addLayout(movement_layout, 3, 2, 1, 2)
-
-        # Add custom style for small buttons
-        small_button_style = """
-            QPushButton {
-                padding: 0px;
-                margin: 0px;
-                border-radius: 2px;
-            }
-        """
-        rotation_minus_btn.setStyleSheet(small_button_style)
-        rotation_plus_btn.setStyleSheet(small_button_style)
-        movement_minus_btn.setStyleSheet(small_button_style)
-        movement_plus_btn.setStyleSheet(small_button_style)
-
         device_group.setLayout(device_layout)
-        main_layout.addWidget(device_group)
-
+        layout.addWidget(device_group)
+        
         # UDP Configuration
         udp_group = QGroupBox("UDP Configuration")
+        udp_group.setFont(QFont("Roboto", 12, QFont.Weight.Bold))
         udp_layout = QGridLayout()
+        udp_layout.setContentsMargins(20, 20, 20, 20)
+        udp_layout.setSpacing(15)
         
-        # First row: IP and Port
         udp_layout.addWidget(QLabel("IP Address:"), 0, 0)
         self.udp_ip = QLineEdit(self.config["udp"]["ip"])
+        self.udp_ip.setFont(QFont("Roboto", 10))
         udp_layout.addWidget(self.udp_ip, 0, 1)
         
         udp_layout.addWidget(QLabel("Port:"), 0, 2)
         self.udp_port = QLineEdit(str(self.config["udp"]["port"]))
+        self.udp_port.setFont(QFont("Roboto", 10))
         udp_layout.addWidget(self.udp_port, 0, 3)
         
-        # Second row: Connect/Disconnect buttons
+        # Create connect and disconnect buttons
         self.connect_btn = QPushButton("Connect")
-        self.connect_btn.setIcon(qta.icon('fa5s.plug'))
+        self.connect_btn.setIcon(qta.icon('fa5s.plug', color='white'))
+        self.connect_btn.setFont(QFont("Roboto", 10))
         self.connect_btn.clicked.connect(self.connect_device)
-        udp_layout.addWidget(self.connect_btn, 1, 0, 1, 2)
-        
         self.disconnect_btn = QPushButton("Disconnect")
-        self.disconnect_btn.setIcon(qta.icon('fa5s.unlink'))
+        self.disconnect_btn.setIcon(qta.icon('fa5s.unlink', color='white'))
+        self.disconnect_btn.setFont(QFont("Roboto", 10))
         self.disconnect_btn.clicked.connect(self.disconnect_device)
-        udp_layout.addWidget(self.disconnect_btn, 1, 2, 1, 2)
+        
+        udp_layout.addWidget(self.connect_btn, 0, 4)
+        udp_layout.addWidget(self.disconnect_btn, 0, 5)
         
         udp_group.setLayout(udp_layout)
-        main_layout.addWidget(udp_group)
+        layout.addWidget(udp_group)
         
-        # Device Control and Monitoring
-        control_group = QGroupBox("Device Control and Monitoring")
+        # Add stretch to push everything up
+        layout.addStretch()
+        
+    def setup_control_tab(self, layout):
+        """Set up the Control tab content"""
+        # Device Control
+        control_group = QGroupBox("Device Control")
+        control_group.setFont(QFont("Roboto", 12, QFont.Weight.Bold))
         control_layout = QGridLayout()
+        control_layout.setContentsMargins(20, 20, 20, 20)
+        control_layout.setSpacing(15)
         
-        # First row: Translation Controls (X, Y, Z)
-        translation_buttons = [
-            ("X-Axis Control", "fa5s.arrows-alt-h", self.control_x_axis, "Map X movement"),
-            ("Y-Axis Control", "fa5s.arrows-alt-v", self.control_y_axis, "Map Y movement"),
-            ("Z-Axis Control", "fa5s.arrows-alt", self.control_z_axis, "Map Z movement")
+        # Translation Controls
+        translation_controls = [
+            ("X-Axis Control", "fa5s.arrows-alt-h", self.control_x_axis),
+            ("Y-Axis Control", "fa5s.arrows-alt-v", self.control_y_axis),
+            ("Z-Axis Control", "fa5s.arrows-alt", self.control_z_axis)
         ]
         
-        # Second row: Rotation Controls (Yaw, Pitch, Roll)
-        rotation_buttons = [
-            ("Yaw Control", "fa5s.sync", self.control_yaw, "Map Yaw rotation"),
-            ("Pitch Control", "fa5s.sync-alt", self.control_pitch, "Map Pitch rotation"),
-            ("Roll Control", "fa5s.redo", self.control_roll, "Map Roll rotation")
+        # Rotation Controls
+        rotation_controls = [
+            ("Yaw Control", "fa5s.undo", self.control_yaw),
+            ("Pitch Control", "fa5s.undo-alt", self.control_pitch),
+            ("Roll Control", "fa5s.sync", self.control_roll)
         ]
         
-        # Third row: Utility Controls
-        utility_buttons = [
-            ("Move Forward", "fa5s.arrow-up", self.move_forward, "Move forward"),
-            ("Reset Position", "fa5s.undo", self.reset_position, "Reset position"),
-            ("Calibrate", "fa5s.crosshairs", self.calibrate_device, "Calibrate device")
+        # Utility Controls
+        utility_controls = [
+            ("Move Forward", "fa5s.arrow-up", self.move_forward),
+            ("Reset Position", "fa5s.undo", self.reset_position),
+            ("Calibrate", "fa5s.cog", self.calibrate_device)
         ]
         
-        # Add all buttons to the layout
-        self.buttons = {}
+        # Add all controls to layout
+        row = 0
+        for controls in [translation_controls, rotation_controls, utility_controls]:
+            for i, (text, icon, callback) in enumerate(controls):
+                btn = QPushButton(text)
+                btn.setIcon(qta.icon(icon, color='white'))
+                btn.setFont(QFont("Roboto", 10))
+                btn.clicked.connect(callback)
+                control_layout.addWidget(btn, row, i)
+            row += 1
         
-        # Add translation controls (row 0)
-        for col, (text, icon, callback, tooltip) in enumerate(translation_buttons):
-            btn = QPushButton(text)
-            btn.setIcon(qta.icon(icon))
-            btn.setEnabled(False)
-            btn.clicked.connect(callback)
-            btn.setToolTip(tooltip)
-            self.buttons[text] = btn
-            control_layout.addWidget(btn, 0, col)
-        
-        # Add rotation controls (row 1)
-        for col, (text, icon, callback, tooltip) in enumerate(rotation_buttons):
-            btn = QPushButton(text)
-            btn.setIcon(qta.icon(icon))
-            btn.setEnabled(False)
-            btn.clicked.connect(callback)
-            btn.setToolTip(tooltip)
-            self.buttons[text] = btn
-            control_layout.addWidget(btn, 1, col)
-        
-        # Add utility controls (row 2)
-        for col, (text, icon, callback, tooltip) in enumerate(utility_buttons):
-            btn = QPushButton(text)
-            btn.setIcon(qta.icon(icon))
-            btn.setEnabled(False)
-            btn.clicked.connect(callback)
-            btn.setToolTip(tooltip)
-            self.buttons[text] = btn
-            control_layout.addWidget(btn, 2, col)
-            
         control_group.setLayout(control_layout)
-        main_layout.addWidget(control_group)
+        layout.addWidget(control_group)
         
-        # Create status bar
-        self.status_bar = QStatusBar()
-        self.setStatusBar(self.status_bar)
-        self.status_bar.showMessage("Ready")
+        # Add stretch to push everything up
+        layout.addStretch()
         
-        # Set theme
-        self.apply_theme()
+    def setup_mapping_tab(self, layout):
+        """Set up the Mapping tab content"""
+        # Create tab widget for mapping
+        mapping_tab_widget = QTabWidget()
+        mapping_tab_widget.setFont(QFont("Roboto", 12))
         
-        # Start monitoring timer
-        self.monitor_timer = QTimer()
-        self.monitor_timer.timeout.connect(self.update_device_status)
-        self.monitor_timer.start(1000)  # Update every second
+        # Create tabs for axis and button mapping
+        axis_tab = QWidget()
+        button_tab = QWidget()
         
+        # Set up tab layouts
+        axis_layout = QVBoxLayout(axis_tab)
+        button_layout = QVBoxLayout(button_tab)
+        
+        # Add tabs to widget
+        mapping_tab_widget.addTab(axis_tab, "Axis Mapping")
+        mapping_tab_widget.addTab(button_tab, "Button Mapping")
+        
+        # Set up Axis Mapping tab
+        axis_group = QGroupBox("Axis Mapping Configuration")
+        axis_group.setFont(QFont("Roboto", 12, QFont.Weight.Bold))
+        axis_content_layout = QVBoxLayout()
+        axis_content_layout.setContentsMargins(20, 20, 20, 20)
+        axis_content_layout.setSpacing(15)
+        
+        # Add axis mapping description
+        axis_label = QLabel(
+            "Configure how your input device's axes map to different control functions.\n"
+            "This allows you to customize the behavior of your device for optimal control."
+        )
+        axis_label.setFont(QFont("Roboto", 10))
+        axis_label.setWordWrap(True)
+        axis_content_layout.addWidget(axis_label)
+        
+        # Add headers for axis mapping
+        self.axis_mapping_layout.addWidget(QLabel("Axis"), 0, 0)
+        self.axis_mapping_layout.addWidget(QLabel("Function"), 0, 1)
+        axis_content_layout.addLayout(self.axis_mapping_layout)
+        
+        # Add save/load buttons for axis mapping
+        axis_button_layout = QHBoxLayout()
+        axis_save_btn = QPushButton("Save Axis Mapping")
+        axis_save_btn.setIcon(qta.icon('fa5s.save', color='white'))
+        axis_save_btn.setFont(QFont("Roboto", 10))
+        axis_save_btn.clicked.connect(lambda: self.save_mapping("axis"))
+        
+        axis_load_btn = QPushButton("Load Axis Mapping")
+        axis_load_btn.setIcon(qta.icon('fa5s.folder-open', color='white'))
+        axis_load_btn.setFont(QFont("Roboto", 10))
+        axis_load_btn.clicked.connect(lambda: self.load_mapping("axis"))
+        
+        axis_button_layout.addWidget(axis_save_btn)
+        axis_button_layout.addWidget(axis_load_btn)
+        axis_content_layout.addLayout(axis_button_layout)
+        
+        axis_group.setLayout(axis_content_layout)
+        axis_layout.addWidget(axis_group)
+        axis_layout.addStretch()
+        
+        # Set up Button Mapping tab
+        button_group = QGroupBox("Button Mapping Configuration")
+        button_group.setFont(QFont("Roboto", 12, QFont.Weight.Bold))
+        button_content_layout = QVBoxLayout()
+        button_content_layout.setContentsMargins(20, 20, 20, 20)
+        button_content_layout.setSpacing(15)
+        
+        # Add button mapping description
+        button_label = QLabel(
+            "Configure how your input device's buttons map to different actions.\n"
+            "This allows you to customize the behavior of your device for optimal control."
+        )
+        button_label.setFont(QFont("Roboto", 10))
+        button_label.setWordWrap(True)
+        button_content_layout.addWidget(button_label)
+        
+        # Add headers for button mapping
+        self.button_mapping_layout.addWidget(QLabel("Button"), 0, 0)
+        self.button_mapping_layout.addWidget(QLabel("Function"), 0, 1)
+        button_content_layout.addLayout(self.button_mapping_layout)
+        
+        # Add save/load buttons for button mapping
+        button_button_layout = QHBoxLayout()
+        button_save_btn = QPushButton("Save Button Mapping")
+        button_save_btn.setIcon(qta.icon('fa5s.save', color='white'))
+        button_save_btn.setFont(QFont("Roboto", 10))
+        button_save_btn.clicked.connect(lambda: self.save_mapping("button"))
+        
+        button_load_btn = QPushButton("Load Button Mapping")
+        button_load_btn.setIcon(qta.icon('fa5s.folder-open', color='white'))
+        button_load_btn.setFont(QFont("Roboto", 10))
+        button_load_btn.clicked.connect(lambda: self.load_mapping("button"))
+        
+        button_button_layout.addWidget(button_save_btn)
+        button_button_layout.addWidget(button_load_btn)
+        button_content_layout.addLayout(button_button_layout)
+        
+        button_group.setLayout(button_content_layout)
+        button_layout.addWidget(button_group)
+        button_layout.addStretch()
+        
+        # Add mapping tab widget to main layout
+        layout.addWidget(mapping_tab_widget)
+        
+        # Set up mapping controls
+        self.setup_mapping_controls()
+
+    def setup_settings_tab(self, layout):
+        """Set up the Settings tab content"""
+        # Application Settings
+        settings_group = QGroupBox("Application Settings")
+        settings_group.setFont(QFont("Roboto", 12, QFont.Weight.Bold))
+        settings_layout = QVBoxLayout()
+        settings_layout.setContentsMargins(20, 20, 20, 20)
+        settings_layout.setSpacing(15)
+        
+        # Add settings description
+        settings_label = QLabel(
+            "Configure theme and appearance"
+        )
+        settings_label.setFont(QFont("Roboto", 10))
+        settings_label.setWordWrap(True)
+        settings_layout.addWidget(settings_label)
+        
+        # Add theme selection
+        theme_layout = QHBoxLayout()
+        theme_layout.addWidget(QLabel("Theme:"))
+        self.theme_combo = QComboBox()  # Store as instance variable
+        self.theme_combo.addItems(["Dark", "Light"])
+        self.theme_combo.setCurrentText("Dark")  # Set default theme
+        self.theme_combo.setFont(QFont("Roboto", 10))
+        self.theme_combo.currentTextChanged.connect(self.apply_theme)
+        theme_layout.addWidget(self.theme_combo)
+        settings_layout.addLayout(theme_layout)
+        
+        settings_group.setLayout(settings_layout)
+        layout.addWidget(settings_group)
+        layout.addStretch()
+
+    def apply_styling(self):
+        """Apply consistent styling to the window"""
+        self.setStyleSheet("""
+            QMainWindow {
+                background-color: #2A2A2A;
+            }
+            QGroupBox {
+                border: 1px solid #3A3A3A;
+                border-radius: 8px;
+                margin-top: 1.5em;
+                padding: 20px;
+                background-color: #333333;
+            }
+            QGroupBox::title {
+                subcontrol-origin: margin;
+                left: 15px;
+                padding: 0 10px;
+                color: #F5F5F5;
+            }
+            QPushButton {
+                background-color: #F28C38;
+                color: white;
+                border: none;
+                border-radius: 6px;
+                padding: 8px 20px;
+                font-weight: bold;
+            }
+            QPushButton:hover {
+                background-color: #F39C48;
+                border: 1px solid #F28C38;
+            }
+            QPushButton:pressed {
+                background-color: #D67B27;
+            }
+            QPushButton:disabled {
+                background-color: #666666;
+            }
+            QComboBox {
+                border: 1px solid #4A4A4A;
+                border-radius: 6px;
+                padding: 8px;
+                background-color: #3A3A3A;
+                color: #F5F5F5;
+                min-width: 180px;
+            }
+            QComboBox:hover {
+                border: 1px solid #F28C38;
+            }
+            QComboBox::drop-down {
+                border: none;
+                width: 20px;
+            }
+            QComboBox::down-arrow {
+                image: url(down_arrow.png);
+                width: 12px;
+                height: 12px;
+            }
+            QLabel {
+                color: #F5F5F5;
+            }
+            QLineEdit {
+                border: 1px solid #4A4A4A;
+                border-radius: 6px;
+                padding: 8px;
+                background-color: #3A3A3A;
+                color: #F5F5F5;
+            }
+            QLineEdit:hover {
+                border: 1px solid #F28C38;
+            }
+            QTabWidget::pane {
+                border: 1px solid #3A3A3A;
+                border-radius: 8px;
+                background-color: #333333;
+            }
+            QTabBar::tab {
+                background-color: #2A2A2A;
+                color: #F5F5F5;
+                padding: 8px 20px;
+                border: 1px solid #3A3A3A;
+                border-bottom: none;
+                border-top-left-radius: 6px;
+                border-top-right-radius: 6px;
+            }
+            QTabBar::tab:selected {
+                background-color: #F28C38;
+                color: white;
+                border: none;
+            }
+            QTabBar::tab:hover:!selected {
+                background-color: #3A3A3A;
+            }
+            QStatusBar {
+                background-color: #333333;
+                color: #F5F5F5;
+            }
+        """)
+
+    def setup_gamepad(self):
+        """Initialize pygame for gamepad support"""
+        pygame.init()
+        pygame.joystick.init()
+        
+        # Gamepad state and calibration
+        self.gamepad = None
+        self.is_reading_input = False
+        self.input_timer = QTimer()
+        self.input_timer.timeout.connect(self.read_gamepad_input)
+        self.x_offset = 0.0
+        self.y_offset = 0.0
+        
+        # Axis mapping flags
+        self.x_mapping = False
+        self.y_mapping = False
+        self.z_mapping = False
+        self.yaw_mapping = False
+        self.pitch_mapping = False
+        self.roll_mapping = False
+        
+    def load_config(self):
+        """Load configuration from file"""
+        try:
+            with open("data/config.json", "r") as f:
+                return json.load(f)
+        except Exception as e:
+            return {"udp": {"ip": "127.0.0.1", "port": 7755}}
+
     def update_device_list(self):
         """Update the device dropdown with available devices"""
         self.device_combo.clear()
-        devices = self.lisu.get_available_devices()
+        devices = self.lisu_manager.get_available_devices()
         for device in devices:
             self.device_combo.addItem(device["name"])
             
     def update_udp_target(self):
         """Update UDP target when IP or port changes"""
         try:
-            ip = self.udp_ip.currentText()
-            port = int(self.udp_port.currentText())
-            self.lisu.set_udp_target(ip, port)
+            ip = self.udp_ip.text()
+            port = int(self.udp_port.text())
+            self.lisu_manager.set_udp_target(ip, port)
         except ValueError:
             pass  # Ignore invalid port numbers
             
@@ -374,7 +672,7 @@ class MainWindow(QMainWindow):
                     self.status_bar.showMessage("No gamepad detected")
             else:
                 # Handle other device types
-                if self.lisu.connect_device(device):
+                if self.lisu_manager.connect_device(device):
                     self.status_bar.showMessage(f"Connected to {device}")
                     for btn in self.buttons.values():
                         btn.setEnabled(True)
@@ -412,7 +710,7 @@ class MainWindow(QMainWindow):
                 self.y_mapping = False
                 self.z_mapping = False
                 self.status_bar.showMessage("Move controller to control X-axis movement")
-            angle = float(self.rotation_angle.text())
+            angle = float(self.rotation_input.text())
             cmd_type = self.cmd_combo.currentText()
             self.send_command(cmd_type, 1.0, 0.0, 0.0, angle)
         except ValueError:
@@ -428,7 +726,7 @@ class MainWindow(QMainWindow):
                 self.y_mapping = True
                 self.z_mapping = False
                 self.status_bar.showMessage("Move controller to control Y-axis movement")
-            angle = float(self.rotation_angle.text())
+            angle = float(self.rotation_input.text())
             cmd_type = self.cmd_combo.currentText()
             self.send_command(cmd_type, 0.0, 1.0, 0.0, angle)
         except ValueError:
@@ -444,7 +742,7 @@ class MainWindow(QMainWindow):
                 self.y_mapping = False
                 self.z_mapping = True
                 self.status_bar.showMessage("Move controller to control Z-axis movement")
-            angle = float(self.rotation_angle.text())
+            angle = float(self.rotation_input.text())
             cmd_type = self.cmd_combo.currentText()
             self.send_command(cmd_type, 0.0, 0.0, 1.0, angle)
         except ValueError:
@@ -456,7 +754,7 @@ class MainWindow(QMainWindow):
         """Move camera forward"""
         try:
             # Get user-specified movement step
-            step = float(self.movement_step.text())
+            step = float(self.step_input.text())
             self.send_command("move", 0.0, 0.0, step)  # Only 3 arguments for move
         except ValueError:
             self.status_bar.showMessage("Invalid movement step value")
@@ -546,87 +844,200 @@ class MainWindow(QMainWindow):
             self.status_bar.showMessage(f"Error during calibration: {str(e)}")
             
     def apply_theme(self):
-        """Apply dark/light theme"""
-        if darkdetect.isDark():
+        """Apply light/dark theme"""
+        theme = self.theme_combo.currentText()  # Use the instance variable instead of findChild
+        if theme == "Dark":
             self.setStyleSheet("""
                 QMainWindow {
-                    background-color: #2b2b2b;
-                    color: #ffffff;
+                    background-color: #2A2A2A;
                 }
                 QGroupBox {
-                    border: 1px solid #3d3d3d;
-                    border-radius: 5px;
-                    margin-top: 1em;
-                    padding: 15px;
-                    font-weight: bold;
+                    border: 1px solid #3A3A3A;
+                    border-radius: 8px;
+                    margin-top: 1.5em;
+                    padding: 20px;
+                    background-color: #333333;
+                }
+                QGroupBox::title {
+                    subcontrol-origin: margin;
+                    left: 15px;
+                    padding: 0 10px;
+                    color: #F5F5F5;
                 }
                 QPushButton {
-                    background-color: #3d3d3d;
-                    border: none;
-                    border-radius: 3px;
-                    padding: 8px 15px;
+                    background-color: #F28C38;
                     color: white;
-                    min-width: 100px;
+                    border: none;
+                    border-radius: 6px;
+                    padding: 8px 20px;
+                    font-weight: bold;
                 }
                 QPushButton:hover {
-                    background-color: #4d4d4d;
+                    background-color: #F39C48;
+                    border: 1px solid #F28C38;
+                }
+                QPushButton:pressed {
+                    background-color: #D67B27;
                 }
                 QPushButton:disabled {
-                    background-color: #2d2d2d;
-                    color: #666666;
+                    background-color: #666666;
                 }
                 QComboBox {
-                    background-color: #3d3d3d;
-                    border: 1px solid #4d4d4d;
-                    border-radius: 3px;
-                    padding: 5px;
-                    color: white;
-                    min-width: 150px;
+                    border: 1px solid #4A4A4A;
+                    border-radius: 6px;
+                    padding: 8px;
+                    background-color: #3A3A3A;
+                    color: #F5F5F5;
+                    min-width: 180px;
+                }
+                QComboBox:hover {
+                    border: 1px solid #F28C38;
+                }
+                QComboBox::drop-down {
+                    border: none;
+                    width: 20px;
+                }
+                QComboBox::down-arrow {
+                    image: url(down_arrow.png);
+                    width: 12px;
+                    height: 12px;
                 }
                 QLabel {
-                    color: #ffffff;
+                    color: #F5F5F5;
+                }
+                QLineEdit {
+                    border: 1px solid #4A4A4A;
+                    border-radius: 6px;
+                    padding: 8px;
+                    background-color: #3A3A3A;
+                    color: #F5F5F5;
+                }
+                QLineEdit:hover {
+                    border: 1px solid #F28C38;
+                }
+                QTabWidget::pane {
+                    border: 1px solid #3A3A3A;
+                    border-radius: 8px;
+                    background-color: #333333;
+                }
+                QTabBar::tab {
+                    background-color: #2A2A2A;
+                    color: #F5F5F5;
+                    padding: 8px 20px;
+                    border: 1px solid #3A3A3A;
+                    border-bottom: none;
+                    border-top-left-radius: 6px;
+                    border-top-right-radius: 6px;
+                }
+                QTabBar::tab:selected {
+                    background-color: #F28C38;
+                    color: white;
+                    border: none;
+                }
+                QTabBar::tab:hover:!selected {
+                    background-color: #3A3A3A;
+                }
+                QStatusBar {
+                    background-color: #333333;
+                    color: #F5F5F5;
                 }
             """)
-        else:
+        else:  # Light theme
             self.setStyleSheet("""
                 QMainWindow {
-                    background-color: #f0f0f0;
-                    color: #000000;
+                    background-color: #F5F5F5;
                 }
                 QGroupBox {
-                    border: 1px solid #cccccc;
-                    border-radius: 5px;
-                    margin-top: 1em;
-                    padding: 15px;
-                    font-weight: bold;
+                    border: 1px solid #E0E0E0;
+                    border-radius: 8px;
+                    margin-top: 1.5em;
+                    padding: 20px;
+                    background-color: #FFFFFF;
+                }
+                QGroupBox::title {
+                    subcontrol-origin: margin;
+                    left: 15px;
+                    padding: 0 10px;
+                    color: #333333;
                 }
                 QPushButton {
-                    background-color: #e0e0e0;
-                    border: 1px solid #cccccc;
-                    border-radius: 3px;
-                    padding: 8px 15px;
-                    color: #000000;
-                    min-width: 100px;
+                    background-color: #F28C38;
+                    color: white;
+                    border: none;
+                    border-radius: 6px;
+                    padding: 8px 20px;
+                    font-weight: bold;
                 }
                 QPushButton:hover {
-                    background-color: #d0d0d0;
+                    background-color: #F39C48;
+                    border: 1px solid #F28C38;
+                }
+                QPushButton:pressed {
+                    background-color: #D67B27;
                 }
                 QPushButton:disabled {
-                    background-color: #f0f0f0;
-                    color: #999999;
+                    background-color: #CCCCCC;
                 }
                 QComboBox {
-                    background-color: white;
-                    border: 1px solid #cccccc;
-                    border-radius: 3px;
-                    padding: 5px;
-                    color: #000000;
-                    min-width: 150px;
+                    border: 1px solid #E0E0E0;
+                    border-radius: 6px;
+                    padding: 8px;
+                    background-color: #FFFFFF;
+                    color: #333333;
+                    min-width: 180px;
+                }
+                QComboBox:hover {
+                    border: 1px solid #F28C38;
+                }
+                QComboBox::drop-down {
+                    border: none;
+                    width: 20px;
+                }
+                QComboBox::down-arrow {
+                    image: url(down_arrow.png);
+                    width: 12px;
+                    height: 12px;
                 }
                 QLabel {
-                    color: #000000;
+                    color: #333333;
                 }
-            """) 
+                QLineEdit {
+                    border: 1px solid #E0E0E0;
+                    border-radius: 6px;
+                    padding: 8px;
+                    background-color: #FFFFFF;
+                    color: #333333;
+                }
+                QLineEdit:hover {
+                    border: 1px solid #F28C38;
+                }
+                QTabWidget::pane {
+                    border: 1px solid #E0E0E0;
+                    border-radius: 8px;
+                    background-color: #FFFFFF;
+                }
+                QTabBar::tab {
+                    background-color: #F5F5F5;
+                    color: #333333;
+                    padding: 8px 20px;
+                    border: 1px solid #E0E0E0;
+                    border-bottom: none;
+                    border-top-left-radius: 6px;
+                    border-top-right-radius: 6px;
+                }
+                QTabBar::tab:selected {
+                    background-color: #F28C38;
+                    color: white;
+                    border: none;
+                }
+                QTabBar::tab:hover:!selected {
+                    background-color: #F0F0F0;
+                }
+                QStatusBar {
+                    background-color: #FFFFFF;
+                    color: #333333;
+                }
+            """)
 
     def create_logo(self, label):
         """Create the LISU logo"""
@@ -806,7 +1217,7 @@ class MainWindow(QMainWindow):
                 if time_diff >= 0.1:  # 100ms rate limiting
                     try:
                         # Get user-specified rotation angle and command type
-                        scale = float(self.rotation_angle.text())
+                        scale = float(self.rotation_input.text())
                         cmd_type = self.cmd_combo.currentText()
                         
                         # Map movement based on active axis
@@ -861,44 +1272,28 @@ class MainWindow(QMainWindow):
             pass
         super().closeEvent(event) 
 
-    def increase_rotation_angle(self):
-        """Increase rotation angle by 1 degree"""
+    def adjust_rotation(self, increment):
+        """Adjust rotation angle by the specified increment"""
         try:
-            current = float(self.rotation_angle.text())
-            self.rotation_angle.setText(str(current + 1))
+            current = float(self.rotation_input.text())
+            new_angle = current + increment
+            self.rotation_input.setText(str(new_angle))
         except ValueError:
-            self.rotation_angle.setText("1")
+            self.rotation_input.setText("40.0")
 
-    def decrease_rotation_angle(self):
-        """Decrease rotation angle by 1 degree"""
+    def adjust_step(self, increment):
+        """Adjust movement step by the specified increment"""
         try:
-            current = float(self.rotation_angle.text())
-            if current > 1:  # Prevent negative or zero angles
-                self.rotation_angle.setText(str(current - 1))
+            current = float(self.step_input.text())
+            new_step = current + increment
+            self.step_input.setText(str(new_step))
         except ValueError:
-            self.rotation_angle.setText("1")
-
-    def increase_movement_step(self):
-        """Increase movement step by 1"""
-        try:
-            current = float(self.movement_step.text())
-            self.movement_step.setText(str(current + 1))
-        except ValueError:
-            self.movement_step.setText("1")
-
-    def decrease_movement_step(self):
-        """Decrease movement step by 1"""
-        try:
-            current = float(self.movement_step.text())
-            if current > 1:  # Prevent negative or zero steps
-                self.movement_step.setText(str(current - 1))
-        except ValueError:
-            self.movement_step.setText("1")
+            self.step_input.setText("1.0")
 
     def control_yaw(self):
         """Control Yaw rotation"""
         try:
-            angle = float(self.rotation_angle.text())
+            angle = float(self.rotation_input.text())
             cmd_type = self.cmd_combo.currentText()
             # Map current gamepad position to yaw axis
             if self.gamepad:
@@ -915,7 +1310,7 @@ class MainWindow(QMainWindow):
     def control_pitch(self):
         """Control Pitch rotation"""
         try:
-            angle = float(self.rotation_angle.text())
+            angle = float(self.rotation_input.text())
             cmd_type = self.cmd_combo.currentText()
             # Map current gamepad position to pitch axis
             if self.gamepad:
@@ -932,7 +1327,7 @@ class MainWindow(QMainWindow):
     def control_roll(self):
         """Control Roll rotation"""
         try:
-            angle = float(self.rotation_angle.text())
+            angle = float(self.rotation_input.text())
             cmd_type = self.cmd_combo.currentText()
             # Map current gamepad position to roll axis
             if self.gamepad:
@@ -944,4 +1339,116 @@ class MainWindow(QMainWindow):
         except ValueError:
             self.status_bar.showMessage("Invalid rotation angle value")
         except Exception as e:
-            self.status_bar.showMessage(f"Error sending command: {str(e)}") 
+            self.status_bar.showMessage(f"Error sending command: {str(e)}")
+
+    def setup_mapping_controls(self):
+        """Set up the axis and button mapping controls based on device capabilities"""
+        # Clear existing controls
+        for control in self.axis_mapping_controls:
+            self.axis_mapping_layout.removeWidget(control)
+        self.axis_mapping_controls.clear()
+        
+        for control in self.button_mapping_controls:
+            self.button_mapping_layout.removeWidget(control)
+        self.button_mapping_controls.clear()
+        
+        # Get device capabilities
+        try:
+            device_type = self.device_type_combo.currentText()
+            if device_type in self.device_capabilities:
+                capabilities = self.device_capabilities[device_type]
+                
+                # Add axis mapping controls
+                for i in range(capabilities["axes"]):
+                    row = i + 1  # Start from row 1 (row 0 is header)
+                    label = QLabel(f"Axis {i}:")
+                    combo = QComboBox()
+                    combo.addItems(["None", "X", "Y", "Z", "Yaw", "Pitch", "Roll"])
+                    self.axis_mapping_layout.addWidget(label, row, 0)
+                    self.axis_mapping_layout.addWidget(combo, row, 1)
+                    self.axis_mapping_controls.append((label, combo))
+                
+                # Add button mapping controls
+                for i in range(capabilities["buttons"]):
+                    row = i + 1  # Start from row 1 (row 0 is header)
+                    label = QLabel(f"Button {i}:")
+                    combo = QComboBox()
+                    combo.addItems(["None", "Move Forward", "Reset Position", "Calibrate"])
+                    self.button_mapping_layout.addWidget(label, row, 0)
+                    self.button_mapping_layout.addWidget(combo, row, 1)
+                    self.button_mapping_controls.append((label, combo))
+                
+                self.status_bar.showMessage(f"Mapping controls set up for {device_type}")
+            else:
+                self.status_bar.showMessage(f"No capabilities defined for {device_type}")
+        except Exception as e:
+            print(f"Error setting up mapping controls: {e}")
+            self.status_bar.showMessage(f"Error setting up mapping controls: {e}")
+    
+    def save_mapping(self, mapping_type):
+        """Save the current axis or button mappings to configuration"""
+        try:
+            mapping_config = {
+                "axis_mapping": {},
+                "button_mapping": {}
+            }
+            
+            if mapping_type == "axis":
+                # Save axis mappings
+                for i, (_, combo) in enumerate(self.axis_mapping_controls):
+                    mapping_config["axis_mapping"][f"axis_{i}"] = combo.currentText()
+                self.status_bar.showMessage("Axis mapping configuration saved successfully")
+            elif mapping_type == "button":
+                # Save button mappings
+                for i, (_, combo) in enumerate(self.button_mapping_controls):
+                    mapping_config["button_mapping"][f"button_{i}"] = combo.currentText()
+                self.status_bar.showMessage("Button mapping configuration saved successfully")
+            
+            # Save to config file
+            config_path = os.path.join(os.path.dirname(__file__), "..", "data", "mapping_config.json")
+            with open(config_path, "w") as f:
+                json.dump(mapping_config, f, indent=4)
+                
+        except Exception as e:
+            self.status_bar.showMessage(f"Error saving {mapping_type} mapping: {e}")
+    
+    def load_mapping(self, mapping_type):
+        """Load axis or button mappings from configuration"""
+        try:
+            config_path = os.path.join(os.path.dirname(__file__), "..", "data", "mapping_config.json")
+            if os.path.exists(config_path):
+                with open(config_path, "r") as f:
+                    mapping_config = json.load(f)
+                
+                if mapping_type == "axis":
+                    # Load axis mappings
+                    for i, (_, combo) in enumerate(self.axis_mapping_controls):
+                        key = f"axis_{i}"
+                        if key in mapping_config["axis_mapping"]:
+                            index = combo.findText(mapping_config["axis_mapping"][key])
+                            if index >= 0:
+                                combo.setCurrentIndex(index)
+                    self.status_bar.showMessage("Axis mapping configuration loaded successfully")
+                elif mapping_type == "button":
+                    # Load button mappings
+                    for i, (_, combo) in enumerate(self.button_mapping_controls):
+                        key = f"button_{i}"
+                        if key in mapping_config["button_mapping"]:
+                            index = combo.findText(mapping_config["button_mapping"][key])
+                            if index >= 0:
+                                combo.setCurrentIndex(index)
+                    self.status_bar.showMessage("Button mapping configuration loaded successfully")
+            else:
+                self.status_bar.showMessage("No mapping configuration found")
+        except Exception as e:
+            self.status_bar.showMessage(f"Error loading {mapping_type} mapping: {e}")
+
+    def on_device_selected(self, device_name):
+        """Handle device selection"""
+        self.selected_device = device_name
+        self.setup_mapping_controls()  # Set up mapping controls when device is selected 
+
+    def open_mapping_window(self):
+        """Open the device mapping configuration window"""
+        mapping_window = MappingWindow(self)
+        mapping_window.exec() 
