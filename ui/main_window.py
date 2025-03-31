@@ -1,3 +1,7 @@
+"""
+© Mario Sandoval Olive 2024. All rights reserved.
+"""
+
 from PyQt6.QtWidgets import (QMainWindow, QWidget, QVBoxLayout, QHBoxLayout,
                              QPushButton, QLabel, QComboBox, QStatusBar,
                              QGroupBox, QGridLayout, QSpacerItem, QSizePolicy,

@@ -1,3 +1,7 @@
+"""
+© Mario Sandoval Olive 2024. All rights reserved.
+"""
+
 from PyQt6.QtWidgets import (QDialog, QVBoxLayout, QHBoxLayout, QGridLayout,
                             QLabel, QComboBox, QPushButton, QGroupBox,
                             QScrollArea, QWidget, QFrame, QToolTip)
